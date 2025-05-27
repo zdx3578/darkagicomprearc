@@ -573,186 +573,108 @@ def postprocess_mask(task, x_mask, y_mask):
 
 
 
+# 1. 首先定义基本的单张量操作函数
+def rotate_(x, dim, masks, angles=[90, 180, 270]):
+    """旋转操作的基本函数（处理单个张量）"""
+    features = [x]  # 原始特征
 
-def rotate(x, weights, masks=None, pre_norm=False, post_norm=False, use_bias=False):
-    """
-    在不同角度旋转特征，捕获旋转不变性
+    # 90度旋转
+    rot90 = torch.transpose(x, -2, -1).flip(-2)
+    # 180度旋转
+    rot180 = x.flip(-2).flip(-1)
+    # 270度旋转
+    rot270 = torch.transpose(x, -2, -1).flip(-1)
 
-    Args:
-        x: MultiTensor 输入
-        weights: 旋转权重
-        masks: 可选掩码
-        pre_norm: 是否在操作前归一化
-        post_norm: 是否在操作后归一化
-        use_bias: 是否使用偏置
+    features.extend([rot90, rot180, rot270])
+    return sum(features) / len(features)
 
-    Returns:
-        结果 MultiTensor
-    """
-    if pre_norm:
-        x = normalize(x)
+# 对角线旋转操作（用于2D情形）
+def diagonal_rotate_(x, dim1, dim2, masks):
+    """处理对角线方向的旋转"""
+    return rotate_(x, dim1, masks)  # 简化实现
 
-    # 创建结果 MultiTensor (与其他层函数相同的模式)
-    result = x.new_zeros_like()
+# 2. 创建完整的多张量函数，使用相同的装饰器模式
+rotate = multitensor_systems.multify(
+         only_do_for_certain_shapes((1,1,1,1,1), (1,0,1,1,1))(
+         add_residual(
+         make_directional_layer(
+         rotate_, diagonal_rotate_
+         ))))
 
-    # 对每个张量进行处理
-    for i, dims in enumerate(x.system):
-        # 跳过不适用的张量
-        if dims[3] == 0 or dims[4] == 0:
-            result[dims] = x[dims].clone()
-            continue
+# 形态学操作同理
+def morphology_(x, dim, masks):
+    """形态学操作的基本函数"""
+    # 膨胀操作
+    dilated = torch.nn.functional.max_pool2d(
+        x, kernel_size=3, stride=1, padding=1
+    )
 
-        # 处理具有空间维度的张量
-        features = []
-        # 添加原始特征
-        features.append(x[dims])
+    # 腐蚀操作
+    eroded = -torch.nn.functional.max_pool2d(
+        -x, kernel_size=3, stride=1, padding=1
+    )
 
-        # 实现90度旋转
-        rot90 = torch.transpose(x[dims], -2, -1).flip(-2)
-        # 实现180度旋转
-        rot180 = x[dims].flip(-2).flip(-1)
-        # 实现270度旋转
-        rot270 = torch.transpose(x[dims], -2, -1).flip(-1)
+    # 组合特征
+    return (x + dilated + eroded) / 3
 
-        # 应用权重
-        if dims in weights:
-            # 确保权重索引正确
-            weighted_rot90 = rot90 @ weights[dims][0]
-            weighted_rot180 = rot180 @ weights[dims][1]
-            weighted_rot270 = rot270 @ weights[dims][2]
+def diagonal_morphology_(x, dim1, dim2, masks):
+    """处理对角线方向的形态学操作"""
+    return morphology_(x, dim1, masks)
 
-            features.extend([weighted_rot90, weighted_rot180, weighted_rot270])
-        else:
-            features.extend([rot90, rot180, rot270])
+morphological_ops = multitensor_systems.multify(
+                   only_do_for_certain_shapes((1,1,1,1,1), (1,0,1,1,1))(
+                   add_residual(
+                   make_directional_layer(
+                   morphology_, diagonal_morphology_
+                   ))))
 
-        # 组合特征
-        result[dims] = sum(features) / len(features)
+# 连通性分析
+def connected_component_(x, dim, masks):
+    """连通性分析的基本函数"""
+    # 边缘检测
+    if dim == len(x.shape) - 2:  # 水平方向
+        edges = torch.abs(x[..., 1:] - x[..., :-1])
+        edges = torch.nn.functional.pad(edges, (0, 1))
+    else:  # 垂直方向
+        edges = torch.abs(x[..., 1:, :] - x[..., :-1, :])
+        edges = torch.nn.functional.pad(edges, (0, 0, 0, 1))
 
-    if post_norm:
-        result = normalize(result)
+    # 组合特征
+    return x * 0.7 + edges * 0.3
 
-    return result
+def diagonal_connected_component_(x, dim1, dim2, masks):
+    """处理对角线方向的连通性分析"""
+    return connected_component_(x, dim1, masks)
 
-def morphological_ops(x, weights, masks=None, pre_norm=False, post_norm=False, use_bias=False):
-    """形态学操作层"""
-    if pre_norm:
-        x = normalize(x)
+connected_component = multitensor_systems.multify(
+                     only_do_for_certain_shapes((1,1,1,1,1), (1,0,1,1,1))(
+                     add_residual(
+                     make_directional_layer(
+                     connected_component_, diagonal_connected_component_
+                     ))))
 
-    result = x.new_zeros_like()
+# 对称性分析
+def symmetry_(x, dim, masks):
+    """对称性分析的基本函数"""
+    # 沿指定维度翻转
+    flipped = torch.flip(x, [dim])
+    # 计算对称度
+    symmetry_score = torch.abs(x - flipped)
+    # 组合特征
+    return x + symmetry_score * 0.1
 
-    for i, dims in enumerate(x.system):
-        if dims[3] == 0 or dims[4] == 0:
-            result[dims] = x[dims].clone()
-            continue
+def diagonal_symmetry_(x, dim1, dim2, masks):
+    """处理对角线方向的对称性分析"""
+    # 对角对称
+    if x.shape[dim1] == x.shape[dim2]:
+        transposed = torch.transpose(x, dim1, dim2)
+        symmetry_score = torch.abs(x - transposed)
+        return x + symmetry_score * 0.1
+    return symmetry_(x, dim1, masks)
 
-        # 原始特征
-        original = x[dims]
-
-        # 膨胀操作
-        dilated = torch.nn.functional.max_pool2d(
-            original, kernel_size=3, stride=1, padding=1
-        )
-
-        # 腐蚀操作
-        eroded = -torch.nn.functional.max_pool2d(
-            -original, kernel_size=3, stride=1, padding=1
-        )
-
-        # 应用权重
-        if dims in weights:
-            combined = original * 0.4 + dilated * 0.3 + eroded * 0.3  # 默认权重
-            if weights[dims].shape[0] >= 3:
-                # 使用学习到的权重
-                combined = original @ weights[dims][0] + dilated @ weights[dims][1] + eroded @ weights[dims][2]
-        else:
-            combined = (original + dilated + eroded) / 3
-
-        result[dims] = combined
-
-    if post_norm:
-        result = normalize(result)
-
-    return result
-
-def connected_component(x, weights, masks=None, pre_norm=False, post_norm=False, use_bias=False):
-    """连通性分析层"""
-    if pre_norm:
-        x = normalize(x)
-
-    result = x.new_zeros_like()
-
-    for i, dims in enumerate(x.system):
-        if dims[3] == 0 or dims[4] == 0:
-            result[dims] = x[dims].clone()
-            continue
-
-        # 原始特征
-        original = x[dims]
-
-        # 边缘检测
-        edges_h = torch.abs(original[..., :, 1:] - original[..., :, :-1])
-        edges_h = torch.nn.functional.pad(edges_h, (0, 1, 0, 0))
-        edges_v = torch.abs(original[..., 1:, :] - original[..., :-1, :])
-        edges_v = torch.nn.functional.pad(edges_v, (0, 0, 0, 1))
-        edges = (edges_h + edges_v) / 2
-
-        # 应用权重
-        if dims in weights:
-            combined = original * 0.7 + edges * 0.3  # 默认权重
-            if weights[dims].shape[0] >= 2:
-                # 使用学习到的权重
-                combined = original @ weights[dims][0] + edges @ weights[dims][1]
-        else:
-            combined = original * 0.7 + edges * 0.3
-
-        result[dims] = combined
-
-    if post_norm:
-        result = normalize(result)
-
-    return result
-
-def symmetry_analysis(x, weights, masks=None, pre_norm=False, post_norm=False, use_bias=False):
-    """对称性分析层"""
-    if pre_norm:
-        x = normalize(x)
-
-    result = x.new_zeros_like()
-
-    for i, dims in enumerate(x.system):
-        if dims[3] == 0 or dims[4] == 0:
-            result[dims] = x[dims].clone()
-            continue
-
-        # 原始特征
-        original = x[dims]
-
-        # 对称特征
-        h_flipped = original.flip(-1)
-        v_flipped = original.flip(-2)
-
-        symmetry_features = []
-        symmetry_features.append(torch.abs(original - h_flipped))  # 水平对称度
-        symmetry_features.append(torch.abs(original - v_flipped))  # 垂直对称度
-
-        # 对于方阵，计算对角对称度
-        if dims[3] == dims[4]:
-            d_flipped = original.transpose(-2, -1)
-            symmetry_features.append(torch.abs(original - d_flipped))
-
-        # 合并对称特征
-        symmetry = torch.cat(symmetry_features, dim=1)
-
-        # 应用权重
-        if dims in weights:
-            combined = original + symmetry @ weights[dims]
-        else:
-            # 默认简单合并
-            combined = original + symmetry.mean(dim=1, keepdim=True).expand_as(original) * 0.1
-
-        result[dims] = combined
-
-    if post_norm:
-        result = normalize(result)
-
-    return result
+symmetry_analysis = multitensor_systems.multify(
+                   only_do_for_certain_shapes((1,1,1,1,1), (1,0,1,1,1))(
+                   add_residual(
+                   make_directional_layer(
+                   symmetry_, diagonal_symmetry_
+                   ))))
