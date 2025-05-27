@@ -103,8 +103,8 @@ def channel_layer(target_capacity, posterior):
 
     # We make local adjustments to the desired_global_capacity in order to allow different elements to have
     # different variances.
-    local_capacity_adjustment = (target_capacity + 
-                                 local_capacity_adjustment - 
+    local_capacity_adjustment = (target_capacity +
+                                 local_capacity_adjustment -
                                  torch.mean(local_capacity_adjustment, dim=all_but_last_dim))
     desired_local_capacity = torch.exp(local_capacity_adjustment)*init_capacity + min_capacity
 
@@ -173,7 +173,7 @@ def share_direction(residual, share_weights, direction):
     Returns:
         MultiTensor[Tensor]: The output of the multitensor communication layer.
     """
-    
+
     # Split the multiresidual into two multilinears
     down_project_weights = multitensor_systems.multify(lambda dims, weights: weights[0])(share_weights)
     up_project_weights = multitensor_systems.multify(lambda dims, weights: weights[1])(share_weights)
@@ -568,3 +568,192 @@ def postprocess_mask(task, x_mask, y_mask):
     x_mask = x_mask+torch.from_numpy(x_mask_modifier).to(x_mask.device).to(x_mask.dtype)
     y_mask = y_mask+torch.from_numpy(y_mask_modifier).to(y_mask.device).to(y_mask.dtype)
     return x_mask, y_mask
+
+
+
+# 现有导入语句
+import torch
+# ...其他导入
+
+# 新增旋转层
+def rotate(x, weights, angles=[90, 180, 270], pre_norm=True, post_norm=False, use_bias=False):
+    """在不同角度旋转特征，捕获旋转不变性"""
+    if pre_norm:
+        x = normalize(x)
+
+    tensors_out = {}
+    for tensor_id, tensor in x.items():
+        # 跳过不适用的张量
+        if tensor.dim() < 4:
+            tensors_out[tensor_id] = tensor
+            continue
+
+        # 处理适当维度的张量
+        features = []
+        features.append(tensor)  # 原始特征
+
+        # 旋转特征
+        for angle in angles:
+            if angle == 90:
+                rotated = tensor.transpose(-2, -1).flip(-2)
+            elif angle == 180:
+                rotated = tensor.flip(-2).flip(-1)
+            elif angle == 270:
+                rotated = tensor.transpose(-2, -1).flip(-1)
+
+            # 应用权重
+            if tensor_id in weights:
+                angle_idx = angles.index(angle)
+                weight = weights[tensor_id][angle_idx]
+                rotated = rotated @ weight
+
+            features.append(rotated)
+
+        # 组合特征（求和）
+        combined = sum(features) / len(features)
+        tensors_out[tensor_id] = combined
+
+    if post_norm:
+        tensors_out = normalize(tensors_out)
+
+    return tensors_out
+
+# 新增形态学操作层
+def morphological_ops(x, weights, masks=None, pre_norm=True, post_norm=False, use_bias=False):
+    """形态学操作层，类似于膨胀和腐蚀"""
+    if pre_norm:
+        x = normalize(x)
+
+    tensors_out = {}
+    for tensor_id, tensor in x.items():
+        # 跳过不适用的张量
+        if tensor.dim() < 4:
+            tensors_out[tensor_id] = tensor
+            continue
+
+        # 创建卷积核，用于形态学操作
+        kernel_size = 3
+        dilate_kernel = torch.ones(1, 1, kernel_size, kernel_size, device=tensor.device)
+
+        # 对每个通道分别应用形态学操作
+        channels = []
+        for c in range(tensor.shape[1]):
+            # 提取单个通道
+            channel = tensor[:, c:c+1]
+
+            # 膨胀操作（最大池化等效）
+            dilated = torch.nn.functional.conv2d(
+                channel, dilate_kernel, padding=kernel_size//2
+            )
+
+            # 腐蚀操作（使用取反的最大池化）
+            eroded = -torch.nn.functional.conv2d(
+                -channel, dilate_kernel, padding=kernel_size//2
+            )
+
+            # 结合原始、膨胀和腐蚀结果
+            if tensor_id in weights:
+                weight = weights[tensor_id]
+                if weight.shape[0] >= 3:
+                    # 线性组合[原始, 膨胀, 腐蚀]
+                    result = channel * weight[0] + dilated * weight[1] + eroded * weight[2]
+                else:
+                    # 简化处理
+                    result = (channel + dilated + eroded) / 3
+            else:
+                result = (channel + dilated + eroded) / 3
+
+            channels.append(result)
+
+        # 合并所有通道
+        tensors_out[tensor_id] = torch.cat(channels, dim=1)
+
+    if post_norm:
+        tensors_out = normalize(tensors_out)
+
+    return tensors_out
+
+# 新增连通性分析层
+def connected_component(x, weights, masks=None, pre_norm=True, post_norm=False, use_bias=False):
+    """连通性分析层，识别对象和边界"""
+    if pre_norm:
+        x = normalize(x)
+
+    tensors_out = {}
+    for tensor_id, tensor in x.items():
+        # 跳过不适用的张量
+        if tensor.dim() < 4:
+            tensors_out[tensor_id] = tensor
+            continue
+
+        # 边界检测（简化的梯度计算）
+        edges_h = torch.abs(tensor[:, :, :, 1:] - tensor[:, :, :, :-1])
+        edges_h = torch.nn.functional.pad(edges_h, (0, 1, 0, 0))
+
+        edges_v = torch.abs(tensor[:, :, 1:, :] - tensor[:, :, :-1, :])
+        edges_v = torch.nn.functional.pad(edges_v, (0, 0, 0, 1))
+
+        edges = (edges_h + edges_v) / 2
+
+        # 应用权重变换
+        if tensor_id in weights:
+            weight = weights[tensor_id]
+            # 假设权重有两部分：原始特征权重和边缘特征权重
+            if weight.shape[0] >= 2:
+                result = tensor * weight[0] + edges * weight[1]
+            else:
+                result = tensor + edges
+        else:
+            result = tensor + edges
+
+        tensors_out[tensor_id] = result
+
+    if post_norm:
+        tensors_out = normalize(tensors_out)
+
+    return tensors_out
+
+# 新增对称性分析层
+def symmetry_analysis(x, weights, masks=None, pre_norm=True, post_norm=False, use_bias=False):
+    """对称性分析层，检测水平、垂直和对角线对称性"""
+    if pre_norm:
+        x = normalize(x)
+
+    tensors_out = {}
+    for tensor_id, tensor in x.items():
+        # 跳过不适用的张量
+        if tensor.dim() < 4:
+            tensors_out[tensor_id] = tensor
+            continue
+
+        # 计算对称性特征
+        h_sym = tensor.flip(-1)  # 水平翻转
+        v_sym = tensor.flip(-2)  # 垂直翻转
+
+        # 计算原始与翻转版本的相似度
+        h_diff = torch.abs(tensor - h_sym)
+        v_diff = torch.abs(tensor - v_sym)
+
+        # 尝试转置操作（方阵情况下）
+        if tensor.shape[-2] == tensor.shape[-1]:
+            diag_sym = tensor.transpose(-2, -1)
+            diag_diff = torch.abs(tensor - diag_sym)
+
+            # 组合所有对称性特征
+            sym_features = torch.cat([h_diff, v_diff, diag_diff], dim=1)
+        else:
+            # 非方阵情况
+            sym_features = torch.cat([h_diff, v_diff], dim=1)
+
+        # 应用权重
+        if tensor_id in weights:
+            result = tensor + sym_features @ weights[tensor_id]
+        else:
+            result = tensor
+
+        tensors_out[tensor_id] = result
+
+    if post_norm:
+        tensors_out = normalize(tensors_out)
+
+    return tensors_out

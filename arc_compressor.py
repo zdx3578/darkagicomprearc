@@ -17,19 +17,24 @@ class ARCCompressor:
     """
 
     # Define the channel dimensions that all the layers use
-    n_layers = 7 #4->6
-    share_up_dim = 20  # 16->20 (适度增加)
-    share_down_dim = 12  # 保持不变
-    decoding_dim = 6   # 保持不变
-    softmax_dim = 4    # 保持不变
-    cummax_dim = 6     # 保持不变
-    shift_dim = 6      # 保持不变
-    nonlinear_dim = 17  # 24->16 (减少以节省内存)
+    n_layers = 4 #4->2
+    share_up_dim = 16  # 16->20 (适度增加)
+    share_down_dim = 12
+    decoding_dim = 6
+    softmax_dim = 6 #4->6
+    cummax_dim = 6
+    shift_dim = 6
+    nonlinear_dim = 16
+
+    rotate_dim = 6
+    morphology_dim = 6
+    connected_component_dim = 6
+    symmetry_dim = 6
 
     # This function gives the channel dimension of the residual stream depending on
     # which dimensions are present, for every tensor in the multitensor.
     def channel_dim_fn(self, dims):
-        return 20 if dims[2] == 0 else 10  # 24->20, 12->10 (稍微减少)
+        return 16 if dims[2] == 0 else 12
 
     def __init__(self, task):
         """
@@ -58,6 +63,12 @@ class ARCCompressor:
         self.direction_share_weights = []
         self.nonlinear_weights = []
 
+        self.rotate_weights = []
+        self.morphology_weights = []
+        self.connected_component_weights = []
+        self.symmetry_weights = []
+
+
         for layer_num in range(self.n_layers):
             self.share_up_weights.append(initializer.initialize_multiresidual(self.share_up_dim, self.share_up_dim))
             self.share_down_weights.append(initializer.initialize_multiresidual(self.share_down_dim, self.share_down_dim))
@@ -67,6 +78,12 @@ class ARCCompressor:
             self.shift_weights.append(initializer.initialize_multiresidual(self.shift_dim, self.shift_dim))
             self.direction_share_weights.append(initializer.initialize_multidirection_share())
             self.nonlinear_weights.append(initializer.initialize_multiresidual(self.nonlinear_dim, self.nonlinear_dim))
+
+            self.rotate_weights.append(initializer.initialize_rotate_weights())
+            self.morphology_weights.append(initializer.initialize_morphology_weights())
+            self.connected_component_weights.append(initializer.initialize_connected_component_weights())
+            self.symmetry_weights.append(initializer.initialize_symmetry_weights())
+
 
         self.head_weights = initializer.initialize_head()
         self.mask_weights = initializer.initialize_linear(
@@ -81,6 +98,10 @@ class ARCCompressor:
             self.cummax_weights,
             self.shift_weights,
             self.nonlinear_weights,
+            self.rotate_weights,
+            self.morphology_weights,
+            self.connected_component_weights,
+            self.symmetry_weights,
         ]:
             for layer_num in range(self.n_layers):
                 initializer.symmetrize_xy(weight_list[layer_num])
@@ -129,6 +150,26 @@ class ARCCompressor:
             )
             x = layers.shift(
                 x, self.shift_weights[layer_num], self.multitensor_system.task.masks,
+                pre_norm=False, post_norm=True, use_bias=False
+            )
+
+            x = layers.rotate(
+                x, self.rotate_weights[layer_num],
+                pre_norm=False, post_norm=True, use_bias=False
+            )
+
+            x = layers.morphological_ops(
+                x, self.morphology_weights[layer_num], self.multitensor_system.task.masks,
+                pre_norm=False, post_norm=True, use_bias=False
+            )
+
+            x = layers.connected_component(
+                x, self.connected_component_weights[layer_num], self.multitensor_system.task.masks,
+                pre_norm=False, post_norm=True, use_bias=False
+            )
+
+            x = layers.symmetry_analysis(
+                x, self.symmetry_weights[layer_num],
                 pre_norm=False, post_norm=True, use_bias=False
             )
 
