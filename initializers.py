@@ -169,62 +169,76 @@ class Initializer:
 
 
 
+    def initialize_rotate(self, dims, _, angles=[90, 180, 270]):
+        """单个旋转层权重的基础初始化函数"""
+        if dims[3] > 0 and dims[4] > 0:  # 确保有空间维度
+            channel_dim = self.channel_dim_fn(dims)
+            result = torch.zeros(len(angles), channel_dim, channel_dim)
+            for i in range(len(angles)):
+                result[i] = torch.eye(channel_dim) * 0.1  # 初始小权重
+            result.requires_grad = True
+            self.weights_list.append(result)
+            return result
+        return None
+
+    def initialize_morphology(self, dims, _):
+        """单个形态学操作权重的基础初始化函数"""
+        if dims[3] > 0 and dims[4] > 0:  # 确保有空间维度
+            channel_dim = self.channel_dim_fn(dims)
+            result = torch.ones(3, channel_dim, channel_dim) * 0.33
+            result.requires_grad = True
+            self.weights_list.append(result)
+            return result
+        return None
+
+    def initialize_connected_component(self, dims, _):
+        """单个连通性分析权重的基础初始化函数"""
+        if dims[3] > 0 and dims[4] > 0:  # 确保有空间维度
+            channel_dim = self.channel_dim_fn(dims)
+            result = torch.tensor([0.7, 0.3]).view(2, 1, 1) * torch.eye(channel_dim).view(1, channel_dim, channel_dim)
+            result.requires_grad = True
+            self.weights_list.append(result)
+            return result
+        return None
+
+    def initialize_symmetry(self, dims, _):
+        """单个对称性分析权重的基础初始化函数"""
+        if dims[3] > 0 and dims[4] > 0:  # 确保有空间维度
+            channel_dim = self.channel_dim_fn(dims)
+            sym_channels = 2  # 水平和垂直
+            if dims[3] == dims[4]:  # 如果是方阵
+                sym_channels = 3  # 加上对角线
+            result = torch.randn(sym_channels * channel_dim, channel_dim) * 0.01
+            result.requires_grad = True
+            self.weights_list.append(result)
+            return result
+        return None
 
     def initialize_rotate_weights(self, angles=[90, 180, 270]):
-        """初始化旋转层的权重"""
-        # 添加调试代码，了解multitensor_system的结构
-        print(f"MultiTensorSystem type: {type(self.multitensor_system)}")
+        """使用multify封装旋转权重初始化"""
+        # 使用部分函数固定angles参数
+        from functools import partial
+        rotate_fn = partial(self.initialize_rotate, angles=angles)
 
-        # 使用正确的模式初始化权重
-        weights = {}
-        for dims in self.multitensor_system:
-            dims_tuple = tuple(dims)  # 将列表转换为元组，使其可哈希
-            if dims[3] > 0 and dims[4] > 0:  # 确保有空间维度
-                channel_dim = self.channel_dim_fn(dims)
-                # 为每个角度创建一个变换矩阵
-                weights[dims_tuple] = torch.zeros(len(angles), channel_dim, channel_dim)
-                for i in range(len(angles)):
-                    weights[dims_tuple][i] = torch.eye(channel_dim) * 0.1  # 初始小权重
-
-        # 注册权重
-        self.weights_list.append(weights)
-        return weights
+        # 使用multify模式，与原始代码保持一致
+        return multitensor_systems.multify(rotate_fn)(
+            self.multitensor_system.make_multitensor()
+        )
 
     def initialize_morphology_weights(self):
-        """初始化形态学操作的权重"""
-        weights = {}
-        for dims in self.multitensor_system:
-            dims_tuple = tuple(dims)  # 将列表转换为元组
-            if dims[3] > 0 and dims[4] > 0:
-                channel_dim = self.channel_dim_fn(dims)
-                weights[dims_tuple] = torch.ones(3, channel_dim, channel_dim) * 0.33
-
-        self.weights_list.append(weights)
-        return weights
+        """使用multify封装形态学操作权重初始化"""
+        return multitensor_systems.multify(self.initialize_morphology)(
+            self.multitensor_system.make_multitensor()
+        )
 
     def initialize_connected_component_weights(self):
-        """初始化连通性分析的权重"""
-        weights = {}
-        for dims in self.multitensor_system:
-            dims_tuple = tuple(dims)  # 将列表转换为元组
-            if dims[3] > 0 and dims[4] > 0:
-                channel_dim = self.channel_dim_fn(dims)
-                weights[dims_tuple] = torch.tensor([0.7, 0.3]).view(2, 1, 1) * torch.eye(channel_dim).view(1, channel_dim, channel_dim)
-
-        self.weights_list.append(weights)
-        return weights
+        """使用multify封装连通性分析权重初始化"""
+        return multitensor_systems.multify(self.initialize_connected_component)(
+            self.multitensor_system.make_multitensor()
+        )
 
     def initialize_symmetry_weights(self):
-        """初始化对称性分析的权重"""
-        weights = {}
-        for dims in self.multitensor_system:
-            dims_tuple = tuple(dims)  # 将列表转换为元组
-            if dims[3] > 0 and dims[4] > 0:
-                channel_dim = self.channel_dim_fn(dims)
-                sym_channels = 2  # 水平和垂直
-                if dims[3] == dims[4]:  # 如果是方阵
-                    sym_channels = 3  # 加上对角线
-                weights[dims_tuple] = torch.randn(sym_channels * channel_dim, channel_dim) * 0.01
-
-        self.weights_list.append(weights)
-        return weights
+        """使用multify封装对称性分析权重初始化"""
+        return multitensor_systems.multify(self.initialize_symmetry)(
+            self.multitensor_system.make_multitensor()
+        )
