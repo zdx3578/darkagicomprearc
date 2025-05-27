@@ -571,189 +571,188 @@ def postprocess_mask(task, x_mask, y_mask):
 
 
 
-# 现有导入语句
-import torch
-# ...其他导入
 
-# 新增旋转层
-def rotate(x, weights, angles=[90, 180, 270], pre_norm=True, post_norm=False, use_bias=False):
-    """在不同角度旋转特征，捕获旋转不变性"""
+
+
+def rotate(x, weights, masks=None, pre_norm=False, post_norm=False, use_bias=False):
+    """
+    在不同角度旋转特征，捕获旋转不变性
+
+    Args:
+        x: MultiTensor 输入
+        weights: 旋转权重
+        masks: 可选掩码
+        pre_norm: 是否在操作前归一化
+        post_norm: 是否在操作后归一化
+        use_bias: 是否使用偏置
+
+    Returns:
+        结果 MultiTensor
+    """
     if pre_norm:
         x = normalize(x)
 
-    tensors_out = {}
-    for tensor_id, tensor in x.items():
+    # 创建结果 MultiTensor (与其他层函数相同的模式)
+    result = x.new_zeros_like()
+
+    # 对每个张量进行处理
+    for i, dims in enumerate(x.system):
         # 跳过不适用的张量
-        if tensor.dim() < 4:
-            tensors_out[tensor_id] = tensor
+        if dims[3] == 0 or dims[4] == 0:
+            result[dims] = x[dims].clone()
             continue
 
-        # 处理适当维度的张量
+        # 处理具有空间维度的张量
         features = []
-        features.append(tensor)  # 原始特征
+        # 添加原始特征
+        features.append(x[dims])
 
-        # 旋转特征
-        for angle in angles:
-            if angle == 90:
-                rotated = tensor.transpose(-2, -1).flip(-2)
-            elif angle == 180:
-                rotated = tensor.flip(-2).flip(-1)
-            elif angle == 270:
-                rotated = tensor.transpose(-2, -1).flip(-1)
-
-            # 应用权重
-            if tensor_id in weights:
-                angle_idx = angles.index(angle)
-                weight = weights[tensor_id][angle_idx]
-                rotated = rotated @ weight
-
-            features.append(rotated)
-
-        # 组合特征（求和）
-        combined = sum(features) / len(features)
-        tensors_out[tensor_id] = combined
-
-    if post_norm:
-        tensors_out = normalize(tensors_out)
-
-    return tensors_out
-
-# 新增形态学操作层
-def morphological_ops(x, weights, masks=None, pre_norm=True, post_norm=False, use_bias=False):
-    """形态学操作层，类似于膨胀和腐蚀"""
-    if pre_norm:
-        x = normalize(x)
-
-    tensors_out = {}
-    for tensor_id, tensor in x.items():
-        # 跳过不适用的张量
-        if tensor.dim() < 4:
-            tensors_out[tensor_id] = tensor
-            continue
-
-        # 创建卷积核，用于形态学操作
-        kernel_size = 3
-        dilate_kernel = torch.ones(1, 1, kernel_size, kernel_size, device=tensor.device)
-
-        # 对每个通道分别应用形态学操作
-        channels = []
-        for c in range(tensor.shape[1]):
-            # 提取单个通道
-            channel = tensor[:, c:c+1]
-
-            # 膨胀操作（最大池化等效）
-            dilated = torch.nn.functional.conv2d(
-                channel, dilate_kernel, padding=kernel_size//2
-            )
-
-            # 腐蚀操作（使用取反的最大池化）
-            eroded = -torch.nn.functional.conv2d(
-                -channel, dilate_kernel, padding=kernel_size//2
-            )
-
-            # 结合原始、膨胀和腐蚀结果
-            if tensor_id in weights:
-                weight = weights[tensor_id]
-                if weight.shape[0] >= 3:
-                    # 线性组合[原始, 膨胀, 腐蚀]
-                    result = channel * weight[0] + dilated * weight[1] + eroded * weight[2]
-                else:
-                    # 简化处理
-                    result = (channel + dilated + eroded) / 3
-            else:
-                result = (channel + dilated + eroded) / 3
-
-            channels.append(result)
-
-        # 合并所有通道
-        tensors_out[tensor_id] = torch.cat(channels, dim=1)
-
-    if post_norm:
-        tensors_out = normalize(tensors_out)
-
-    return tensors_out
-
-# 新增连通性分析层
-def connected_component(x, weights, masks=None, pre_norm=True, post_norm=False, use_bias=False):
-    """连通性分析层，识别对象和边界"""
-    if pre_norm:
-        x = normalize(x)
-
-    tensors_out = {}
-    for tensor_id, tensor in x.items():
-        # 跳过不适用的张量
-        if tensor.dim() < 4:
-            tensors_out[tensor_id] = tensor
-            continue
-
-        # 边界检测（简化的梯度计算）
-        edges_h = torch.abs(tensor[:, :, :, 1:] - tensor[:, :, :, :-1])
-        edges_h = torch.nn.functional.pad(edges_h, (0, 1, 0, 0))
-
-        edges_v = torch.abs(tensor[:, :, 1:, :] - tensor[:, :, :-1, :])
-        edges_v = torch.nn.functional.pad(edges_v, (0, 0, 0, 1))
-
-        edges = (edges_h + edges_v) / 2
-
-        # 应用权重变换
-        if tensor_id in weights:
-            weight = weights[tensor_id]
-            # 假设权重有两部分：原始特征权重和边缘特征权重
-            if weight.shape[0] >= 2:
-                result = tensor * weight[0] + edges * weight[1]
-            else:
-                result = tensor + edges
-        else:
-            result = tensor + edges
-
-        tensors_out[tensor_id] = result
-
-    if post_norm:
-        tensors_out = normalize(tensors_out)
-
-    return tensors_out
-
-# 新增对称性分析层
-def symmetry_analysis(x, weights, masks=None, pre_norm=True, post_norm=False, use_bias=False):
-    """对称性分析层，检测水平、垂直和对角线对称性"""
-    if pre_norm:
-        x = normalize(x)
-
-    tensors_out = {}
-    for tensor_id, tensor in x.items():
-        # 跳过不适用的张量
-        if tensor.dim() < 4:
-            tensors_out[tensor_id] = tensor
-            continue
-
-        # 计算对称性特征
-        h_sym = tensor.flip(-1)  # 水平翻转
-        v_sym = tensor.flip(-2)  # 垂直翻转
-
-        # 计算原始与翻转版本的相似度
-        h_diff = torch.abs(tensor - h_sym)
-        v_diff = torch.abs(tensor - v_sym)
-
-        # 尝试转置操作（方阵情况下）
-        if tensor.shape[-2] == tensor.shape[-1]:
-            diag_sym = tensor.transpose(-2, -1)
-            diag_diff = torch.abs(tensor - diag_sym)
-
-            # 组合所有对称性特征
-            sym_features = torch.cat([h_diff, v_diff, diag_diff], dim=1)
-        else:
-            # 非方阵情况
-            sym_features = torch.cat([h_diff, v_diff], dim=1)
+        # 实现90度旋转
+        rot90 = torch.transpose(x[dims], -2, -1).flip(-2)
+        # 实现180度旋转
+        rot180 = x[dims].flip(-2).flip(-1)
+        # 实现270度旋转
+        rot270 = torch.transpose(x[dims], -2, -1).flip(-1)
 
         # 应用权重
-        if tensor_id in weights:
-            result = tensor + sym_features @ weights[tensor_id]
-        else:
-            result = tensor
+        if dims in weights:
+            # 确保权重索引正确
+            weighted_rot90 = rot90 @ weights[dims][0]
+            weighted_rot180 = rot180 @ weights[dims][1]
+            weighted_rot270 = rot270 @ weights[dims][2]
 
-        tensors_out[tensor_id] = result
+            features.extend([weighted_rot90, weighted_rot180, weighted_rot270])
+        else:
+            features.extend([rot90, rot180, rot270])
+
+        # 组合特征
+        result[dims] = sum(features) / len(features)
 
     if post_norm:
-        tensors_out = normalize(tensors_out)
+        result = normalize(result)
 
-    return tensors_out
+    return result
+
+def morphological_ops(x, weights, masks=None, pre_norm=False, post_norm=False, use_bias=False):
+    """形态学操作层"""
+    if pre_norm:
+        x = normalize(x)
+
+    result = x.new_zeros_like()
+
+    for i, dims in enumerate(x.system):
+        if dims[3] == 0 or dims[4] == 0:
+            result[dims] = x[dims].clone()
+            continue
+
+        # 原始特征
+        original = x[dims]
+
+        # 膨胀操作
+        dilated = torch.nn.functional.max_pool2d(
+            original, kernel_size=3, stride=1, padding=1
+        )
+
+        # 腐蚀操作
+        eroded = -torch.nn.functional.max_pool2d(
+            -original, kernel_size=3, stride=1, padding=1
+        )
+
+        # 应用权重
+        if dims in weights:
+            combined = original * 0.4 + dilated * 0.3 + eroded * 0.3  # 默认权重
+            if weights[dims].shape[0] >= 3:
+                # 使用学习到的权重
+                combined = original @ weights[dims][0] + dilated @ weights[dims][1] + eroded @ weights[dims][2]
+        else:
+            combined = (original + dilated + eroded) / 3
+
+        result[dims] = combined
+
+    if post_norm:
+        result = normalize(result)
+
+    return result
+
+def connected_component(x, weights, masks=None, pre_norm=False, post_norm=False, use_bias=False):
+    """连通性分析层"""
+    if pre_norm:
+        x = normalize(x)
+
+    result = x.new_zeros_like()
+
+    for i, dims in enumerate(x.system):
+        if dims[3] == 0 or dims[4] == 0:
+            result[dims] = x[dims].clone()
+            continue
+
+        # 原始特征
+        original = x[dims]
+
+        # 边缘检测
+        edges_h = torch.abs(original[..., :, 1:] - original[..., :, :-1])
+        edges_h = torch.nn.functional.pad(edges_h, (0, 1, 0, 0))
+        edges_v = torch.abs(original[..., 1:, :] - original[..., :-1, :])
+        edges_v = torch.nn.functional.pad(edges_v, (0, 0, 0, 1))
+        edges = (edges_h + edges_v) / 2
+
+        # 应用权重
+        if dims in weights:
+            combined = original * 0.7 + edges * 0.3  # 默认权重
+            if weights[dims].shape[0] >= 2:
+                # 使用学习到的权重
+                combined = original @ weights[dims][0] + edges @ weights[dims][1]
+        else:
+            combined = original * 0.7 + edges * 0.3
+
+        result[dims] = combined
+
+    if post_norm:
+        result = normalize(result)
+
+    return result
+
+def symmetry_analysis(x, weights, masks=None, pre_norm=False, post_norm=False, use_bias=False):
+    """对称性分析层"""
+    if pre_norm:
+        x = normalize(x)
+
+    result = x.new_zeros_like()
+
+    for i, dims in enumerate(x.system):
+        if dims[3] == 0 or dims[4] == 0:
+            result[dims] = x[dims].clone()
+            continue
+
+        # 原始特征
+        original = x[dims]
+
+        # 对称特征
+        h_flipped = original.flip(-1)
+        v_flipped = original.flip(-2)
+
+        symmetry_features = []
+        symmetry_features.append(torch.abs(original - h_flipped))  # 水平对称度
+        symmetry_features.append(torch.abs(original - v_flipped))  # 垂直对称度
+
+        # 对于方阵，计算对角对称度
+        if dims[3] == dims[4]:
+            d_flipped = original.transpose(-2, -1)
+            symmetry_features.append(torch.abs(original - d_flipped))
+
+        # 合并对称特征
+        symmetry = torch.cat(symmetry_features, dim=1)
+
+        # 应用权重
+        if dims in weights:
+            combined = original + symmetry @ weights[dims]
+        else:
+            # 默认简单合并
+            combined = original + symmetry.mean(dim=1, keepdim=True).expand_as(original) * 0.1
+
+        result[dims] = combined
+
+    if post_norm:
+        result = normalize(result)
+
+    return result
