@@ -170,44 +170,39 @@ class Initializer:
 
 
 
-    def initialize_rotate_weights(self, angles=[90, 180, 270]):
-        """初始化旋转层的权重"""
-        weights = {}
-        # 使用与其他初始化函数相同的方式获取张量信息
-        for tensor_key in self.multitensor_system.tensor_keys():
-            # 获取张量的维度信息
-            dims = self.multitensor_system.tensor_dims(tensor_key)
-            if dims[3] > 0 and dims[4] > 0:  # 确保有空间维度
-                channel_dim = self.channel_dim_fn(dims)
-                # 为每个角度创建一个变换矩阵
-                weights[tensor_key] = torch.zeros(len(angles), channel_dim, channel_dim)
-                for i in range(len(angles)):
-                    weights[tensor_key][i] = torch.eye(channel_dim) * 0.1  # 初始小权重
+    # def initialize_rotate_weights(self, angles=[90, 180, 270]):
+    #     """初始化旋转层的权重"""
+    #     weights = {}
+    #     for dims in self.multitensor_system:  # 正确方式
+    #         if dims[3] > 0 and dims[4] > 0:  # 确保有空间维度
+    #             channel_dim = self.channel_dim_fn(dims)
+    #             # 为每个角度创建一个变换矩阵
+    #             weights[dims] = torch.zeros(len(angles), channel_dim, channel_dim)
+    #             for i in range(len(angles)):
+    #                 weights[dims][i] = torch.eye(channel_dim) * 0.1  # 初始小权重
 
-        # 注册权重
-        self.weights_list.append(weights)
-        return weights
+    #     # 注册权重
+    #     self.weights_list.append(weights)
+    #     return weights
 
-    def initialize_morphology_weights(self):
-        """初始化形态学操作的权重"""
-        weights = {}
-        for tensor_key in self.multitensor_system.tensor_keys():
-            dims = self.multitensor_system.tensor_dims(tensor_key)
-            if dims[3] > 0 and dims[4] > 0:  # 确保有空间维度
-                channel_dim = self.channel_dim_fn(dims)
-                weights[tensor_key] = torch.ones(3, channel_dim, channel_dim) * 0.33
+    # def initialize_morphology_weights(self):
+    #     """初始化形态学操作的权重"""
+    #     weights = {}
+    #     for dims in self.multitensor_system:  # 修改这里
+    #         if dims[3] > 0 and dims[4] > 0:
+    #             channel_dim = self.channel_dim_fn(dims)
+    #             weights[dims] = torch.ones(3, channel_dim, channel_dim) * 0.33
 
-        self.weights_list.append(weights)
-        return weights
+    #     self.weights_list.append(weights)
+    #     return weights
 
     def initialize_connected_component_weights(self):
         """初始化连通性分析的权重"""
         weights = {}
-        for tensor_key in self.multitensor_system.tensor_keys():
-            dims = self.multitensor_system.tensor_dims(tensor_key)
+        for dims in self.multitensor_system:  # 修改这里
             if dims[3] > 0 and dims[4] > 0:
                 channel_dim = self.channel_dim_fn(dims)
-                weights[tensor_key] = torch.tensor([0.7, 0.3]).view(2, 1, 1) * torch.eye(channel_dim).view(1, channel_dim, channel_dim)
+                weights[dims] = torch.tensor([0.7, 0.3]).view(2, 1, 1) * torch.eye(channel_dim).view(1, channel_dim, channel_dim)
 
         self.weights_list.append(weights)
         return weights
@@ -215,14 +210,84 @@ class Initializer:
     def initialize_symmetry_weights(self):
         """初始化对称性分析的权重"""
         weights = {}
-        for tensor_key in self.multitensor_system.tensor_keys():
-            dims = self.multitensor_system.tensor_dims(tensor_key)
+        for dims in self.multitensor_system:  # 修改这里
             if dims[3] > 0 and dims[4] > 0:
                 channel_dim = self.channel_dim_fn(dims)
                 sym_channels = 2  # 水平和垂直
                 if dims[3] == dims[4]:  # 如果是方阵
                     sym_channels = 3  # 加上对角线
-                weights[tensor_key] = torch.randn(sym_channels * channel_dim, channel_dim) * 0.01
+                weights[dims] = torch.randn(sym_channels * channel_dim, channel_dim) * 0.01
+
+        self.weights_list.append(weights)
+        return weights
+
+
+    def initialize_rotate_weights(self, angles=[90, 180, 270]):
+        """初始化旋转层的权重"""
+        # 添加调试代码，了解multitensor_system的结构
+        print(f"MultiTensorSystem type: {type(self.multitensor_system)}")
+        print(f"Available methods: {[m for m in dir(self.multitensor_system) if not m.startswith('_')]}")
+
+        # 尝试迭代测试
+        print("Iterating through system:")
+        for i, item in enumerate(self.multitensor_system):
+            print(f"  {i}: item type = {type(item)}, value = {item}")
+            if i > 2:  # 限制输出
+                print("  ...")
+                break
+
+        # 查看其他常用初始化函数的源代码参考
+        print("Examining existing init functions structure...")
+
+        # 使用正确的模式初始化权重
+        weights = {}
+        for dims in self.multitensor_system:  # 按照symmetrize_xy的模式迭代
+            if dims[3] > 0 and dims[4] > 0:  # 确保有空间维度
+                channel_dim = self.channel_dim_fn(dims)
+                print(f"Processing dims {dims} with channel_dim {channel_dim}")
+                # 为每个角度创建一个变换矩阵
+                weights[dims] = torch.zeros(len(angles), channel_dim, channel_dim)
+                for i in range(len(angles)):
+                    weights[dims][i] = torch.eye(channel_dim) * 0.1  # 初始小权重
+
+        # 注册权重
+        self.weights_list.append(weights)
+        return weights
+
+    def initialize_morphology_weights(self):
+        """初始化形态学操作的权重"""
+        # 查看一下multitensor_system的使用模式
+        if hasattr(self, "_debug_printed") and self._debug_printed:
+            # 避免多次打印调试信息
+            pass
+        else:
+            print("Examining multitensor_system for morphology weights:")
+            print(f"Is iterable: {hasattr(self.multitensor_system, '__iter__')}")
+            # 标记已打印调试信息
+            self._debug_printed = True
+
+        weights = {}
+        try:
+            # 尝试正确的迭代方式
+            for dims in self.multitensor_system:
+                if dims[3] > 0 and dims[4] > 0:
+                    channel_dim = self.channel_dim_fn(dims)
+                    weights[dims] = torch.ones(3, channel_dim, channel_dim) * 0.33
+        except Exception as e:
+            print(f"Error in morphology weights: {e}")
+
+            # 尝试现有的初始化方法模式作为备选
+            print("Trying alternative approach with multify...")
+
+            def init_morphology(dims, _):
+                if dims[3] > 0 and dims[4] > 0:
+                    channel_dim = self.channel_dim_fn(dims)
+                    return torch.ones(3, channel_dim, channel_dim) * 0.33
+                return None
+
+            weights = multitensor_systems.multify(init_morphology)(
+                self.multitensor_system.make_multitensor()
+            )
 
         self.weights_list.append(weights)
         return weights
