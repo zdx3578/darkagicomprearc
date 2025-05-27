@@ -153,8 +153,29 @@ class ARCCompressor:
                 pre_norm=False, post_norm=True, use_bias=False
             )
 
+            # x = layers.rotate(
+            #     x, self.rotate_weights[layer_num],
+            #     pre_norm=False, post_norm=True, use_bias=False
+            # )
+
+            # x = layers.morphological_ops(
+            #     x, self.morphology_weights[layer_num], self.multitensor_system.task.masks,
+            #     pre_norm=False, post_norm=True, use_bias=False
+            # )
+
+            # x = layers.connected_component(
+            #     x, self.connected_component_weights[layer_num], self.multitensor_system.task.masks,
+            #     pre_norm=False, post_norm=True, use_bias=False
+            # )
+
+            # x = layers.symmetry_analysis(
+            #     x, self.symmetry_weights[layer_num],
+            #     pre_norm=False, post_norm=True, use_bias=False
+            # )
+
+                        # 修改arc_compressor.py中的rotate调用
             x = layers.rotate(
-                x, self.rotate_weights[layer_num],
+                x, self.rotate_weights[layer_num], self.multitensor_system.task.masks,
                 pre_norm=False, post_norm=True, use_bias=False
             )
 
@@ -169,7 +190,7 @@ class ARCCompressor:
             )
 
             x = layers.symmetry_analysis(
-                x, self.symmetry_weights[layer_num],
+                x, self.symmetry_weights[layer_num], self.multitensor_system.task.masks,
                 pre_norm=False, post_norm=True, use_bias=False
             )
 
