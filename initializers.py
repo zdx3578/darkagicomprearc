@@ -168,19 +168,21 @@ class Initializer:
                     multiweights[dims][dir1][dir2] = multiweights[from_dims][from_dir1][from_dir2]
 
 
-# class Initializer:
-    # ...现有代码...
+
 
     def initialize_rotate_weights(self, angles=[90, 180, 270]):
         """初始化旋转层的权重"""
         weights = {}
-        for tensor_id, dims in self.multitensor_system.tensor_dims.items():
+        # 使用与其他初始化函数相同的方式获取张量信息
+        for tensor_key in self.multitensor_system.tensor_keys():
+            # 获取张量的维度信息
+            dims = self.multitensor_system.tensor_dims(tensor_key)
             if dims[3] > 0 and dims[4] > 0:  # 确保有空间维度
                 channel_dim = self.channel_dim_fn(dims)
                 # 为每个角度创建一个变换矩阵
-                weights[tensor_id] = torch.zeros(len(angles), channel_dim, channel_dim)
+                weights[tensor_key] = torch.zeros(len(angles), channel_dim, channel_dim)
                 for i in range(len(angles)):
-                    weights[tensor_id][i] = torch.eye(channel_dim) * 0.1  # 初始小权重
+                    weights[tensor_key][i] = torch.eye(channel_dim) * 0.1  # 初始小权重
 
         # 注册权重
         self.weights_list.append(weights)
@@ -189,40 +191,38 @@ class Initializer:
     def initialize_morphology_weights(self):
         """初始化形态学操作的权重"""
         weights = {}
-        for tensor_id, dims in self.multitensor_system.tensor_dims.items():
+        for tensor_key in self.multitensor_system.tensor_keys():
+            dims = self.multitensor_system.tensor_dims(tensor_key)
             if dims[3] > 0 and dims[4] > 0:  # 确保有空间维度
                 channel_dim = self.channel_dim_fn(dims)
-                # [原始, 膨胀, 腐蚀] 的权重
-                weights[tensor_id] = torch.ones(3, channel_dim, channel_dim) * 0.33
+                weights[tensor_key] = torch.ones(3, channel_dim, channel_dim) * 0.33
 
-        # 注册权重
         self.weights_list.append(weights)
         return weights
 
     def initialize_connected_component_weights(self):
         """初始化连通性分析的权重"""
         weights = {}
-        for tensor_id, dims in self.multitensor_system.tensor_dims.items():
+        for tensor_key in self.multitensor_system.tensor_keys():
+            dims = self.multitensor_system.tensor_dims(tensor_key)
             if dims[3] > 0 and dims[4] > 0:
                 channel_dim = self.channel_dim_fn(dims)
-                # [原始特征, 边缘特征]的权重
-                weights[tensor_id] = torch.tensor([0.7, 0.3]).view(2, 1, 1) * torch.eye(channel_dim).view(1, channel_dim, channel_dim)
+                weights[tensor_key] = torch.tensor([0.7, 0.3]).view(2, 1, 1) * torch.eye(channel_dim).view(1, channel_dim, channel_dim)
 
-        # 注册权重
         self.weights_list.append(weights)
         return weights
 
     def initialize_symmetry_weights(self):
         """初始化对称性分析的权重"""
         weights = {}
-        for tensor_id, dims in self.multitensor_system.tensor_dims.items():
+        for tensor_key in self.multitensor_system.tensor_keys():
+            dims = self.multitensor_system.tensor_dims(tensor_key)
             if dims[3] > 0 and dims[4] > 0:
                 channel_dim = self.channel_dim_fn(dims)
                 sym_channels = 2  # 水平和垂直
                 if dims[3] == dims[4]:  # 如果是方阵
                     sym_channels = 3  # 加上对角线
-                weights[tensor_id] = torch.randn(sym_channels * channel_dim, channel_dim) * 0.01
+                weights[tensor_key] = torch.randn(sym_channels * channel_dim, channel_dim) * 0.01
 
-        # 注册权重
         self.weights_list.append(weights)
         return weights
