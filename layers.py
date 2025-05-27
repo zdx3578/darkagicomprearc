@@ -574,8 +574,10 @@ def postprocess_mask(task, x_mask, y_mask):
 
 
 # 1. 首先定义基本的单张量操作函数
-def rotate_(x, dim, masks, angles=[90, 180, 270]):
+def rotate_(x, dim, masks):
     """旋转操作的基本函数（处理单个张量）"""
+    # 注意：掩码已经在directional_layer中应用到x上
+    # 无需在此函数中再次应用掩码
     features = [x]  # 原始特征
 
     # 90度旋转
@@ -588,7 +590,6 @@ def rotate_(x, dim, masks, angles=[90, 180, 270]):
     features.extend([rot90, rot180, rot270])
     return sum(features) / len(features)
 
-# 对角线旋转操作（用于2D情形）
 def diagonal_rotate_(x, dim1, dim2, masks):
     """处理对角线方向的旋转"""
     return rotate_(x, dim1, masks)  # 简化实现
@@ -604,6 +605,8 @@ rotate = multitensor_systems.multify(
 # 形态学操作同理
 def morphology_(x, dim, masks):
     """形态学操作的基本函数"""
+    # 掩码已经在directional_layer中应用
+
     # 膨胀操作
     dilated = torch.nn.functional.max_pool2d(
         x, kernel_size=3, stride=1, padding=1
