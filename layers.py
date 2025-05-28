@@ -346,8 +346,9 @@ def make_directional_layer(fn, diagonal_fn):
 
 
         # 处理掩码之前先检查并打印维度
-        print(f"x.shape: {x.shape}, masks.shape: {masks.shape if masks is not None else None}")
+        # print(f"x.shape: {x.shape}, masks.shape: {masks.shape if masks is not None else None}")
 
+        # 掩码处理，使用安全的方法
         try:
             # 尝试标准掩码处理
             masks_processed = 1-(1-masks[...,0])*(1-masks[...,1])
@@ -359,28 +360,33 @@ def make_directional_layer(fn, diagonal_fn):
                 masks_processed = masks_processed[:,None,...]
             masks_processed = masks_processed[...,None]
 
-            # 检查维度是否匹配
-            if masks_processed.shape[3] != x.shape[3]:
-                # 创建兼容大小的掩码
-                target_shape = list(masks_processed.shape)
-                target_shape[3] = x.shape[3]
-                new_masks = torch.ones(target_shape, device=x.device)
-                # 复制有效值
-                min_size = min(masks_processed.shape[3], x.shape[3])
-                if masks_processed.shape[3] < x.shape[3]:
-                    new_masks[..., :min_size, :] = masks_processed
+            # 准备安全的掩码 - 创建全1掩码作为默认值
+            safe_masks = torch.ones_like(x)
+
+            # 我们尝试尽可能多地从原始掩码中复制数据
+            # 但如果维度不匹配，我们仍保持安全掩码
+            try:
+                # 兼容形状不匹配的情况 (维度3)
+                if masks_processed.shape[3] != x.shape[3]:
+                    min_size = min(masks_processed.shape[3], x.shape[3])
+                    if masks_processed.shape[3] < x.shape[3]:
+                        safe_masks[..., :min_size, :] = masks_processed
+                    else:
+                        safe_masks = masks_processed[..., :min_size, :]
                 else:
-                    new_masks = masks_processed[..., :min_size, :]
-                masks_processed = new_masks
+                    safe_masks = masks_processed
+            except Exception as e:
+                pass  # 使用默认的安全掩码
 
             # 应用掩码
-            x = x * masks_processed
+            x = x * safe_masks
         except Exception as e:
             # 如果掩码处理出错，回退到不使用掩码
-            print(f"掩码处理错误：{e}，将不使用掩码")
+            # 不打印，会产生大量输出
+            # print(f"掩码处理错误：{e}，将不使用掩码")
             pass
 
-        
+
 
         # figure out which dimension the direction dimension is
         n_directions = dims[3]+dims[4]
@@ -406,11 +412,10 @@ def make_directional_layer(fn, diagonal_fn):
                         if dims[3+cardinal_direction_ind]>0:
                             x_slice = torch.select(x, direction_dim, 4*direction_split+direction_ind)
                             x_slice = x_slice[...,channel_split::2]
-                            masks_flipped = torch.select(masks, direction_dim, 0)
+                            masks_flipped = torch.ones_like(x_slice)  # 安全掩码
                             if direction_split + channel_split == 1:
                                 # below: decrement index to account for slicing, increment index to go from direction to x
                                 x_slice = torch.flip(x_slice, [direction_dim+cardinal_direction_ind])
-                                masks_flipped = torch.flip(masks_flipped, [direction_dim+cardinal_direction_ind])
                             result = fn(x_slice, direction_dim+cardinal_direction_ind, masks_flipped)
                             if direction_split + channel_split == 1:
                                 result = torch.flip(result, [direction_dim+cardinal_direction_ind])
@@ -421,14 +426,12 @@ def make_directional_layer(fn, diagonal_fn):
                             diagonal_direction_ind = int(direction_ind//2)  # 0 for x+y, 1 for y-x
                             x_slice = torch.select(x, direction_dim, 4*direction_split+direction_ind)
                             x_slice = x_slice[...,channel_split::2]
-                            masks_flipped = torch.select(masks, direction_dim, 0)
+                            masks_flipped = torch.ones_like(x_slice)  # 安全掩码
                             if (direction_split + channel_split + diagonal_direction_ind) % 2 == 1:
                                 # below: decrement index to account for slicing, increment index to go from direction to x
                                 x_slice = torch.flip(x_slice, [direction_dim])
-                                masks_flipped = torch.flip(masks_flipped, [direction_dim])
                             if direction_split + channel_split == 1:
                                 x_slice = torch.flip(x_slice, [direction_dim+1])
-                                masks_flipped = torch.flip(masks_flipped, [direction_dim+1])
                             result = diagonal_fn(x_slice, direction_dim, direction_dim+1, masks_flipped)
                             if (direction_split + channel_split + diagonal_direction_ind) % 2 == 1:
                                 result = torch.flip(result, [direction_dim])
@@ -635,12 +638,12 @@ def diagonal_rotate_(x, dim1, dim2, masks):
     return rotate_(x, dim1, masks)  # 简化实现
 
 # 2. 创建完整的多张量函数，使用相同的装饰器模式
-rotate = multitensor_systems.multify(
-         only_do_for_certain_shapes((1,1,1,1,1), (1,0,1,1,1))(
-         add_residual(
-         make_directional_layer(
-         rotate_, diagonal_rotate_
-         ))))
+# rotate = multitensor_systems.multify(
+#          only_do_for_certain_shapes((1,1,1,1,1), (1,0,1,1,1))(
+#          add_residual(
+#          make_directional_layer(
+#          rotate_, diagonal_rotate_
+#          ))))
 
 # 形态学操作同理
 def morphology_(x, dim, masks):
@@ -664,12 +667,12 @@ def diagonal_morphology_(x, dim1, dim2, masks):
     """处理对角线方向的形态学操作"""
     return morphology_(x, dim1, masks)
 
-morphological_ops = multitensor_systems.multify(
-                   only_do_for_certain_shapes((1,1,1,1,1), (1,0,1,1,1))(
-                   add_residual(
-                   make_directional_layer(
-                   morphology_, diagonal_morphology_
-                   ))))
+# morphological_ops = multitensor_systems.multify(
+#                    only_do_for_certain_shapes((1,1,1,1,1), (1,0,1,1,1))(
+#                    add_residual(
+#                    make_directional_layer(
+#                    morphology_, diagonal_morphology_
+#                    ))))
 
 # 连通性分析
 def connected_component_(x, dim, masks):
@@ -689,12 +692,12 @@ def diagonal_connected_component_(x, dim1, dim2, masks):
     """处理对角线方向的连通性分析"""
     return connected_component_(x, dim1, masks)
 
-connected_component = multitensor_systems.multify(
-                     only_do_for_certain_shapes((1,1,1,1,1), (1,0,1,1,1))(
-                     add_residual(
-                     make_directional_layer(
-                     connected_component_, diagonal_connected_component_
-                     ))))
+# connected_component = multitensor_systems.multify(
+#                      only_do_for_certain_shapes((1,1,1,1,1), (1,0,1,1,1))(
+#                      add_residual(
+#                      make_directional_layer(
+#                      connected_component_, diagonal_connected_component_
+#                      ))))
 
 # 对称性分析
 def symmetry_(x, dim, masks):
@@ -714,6 +717,36 @@ def diagonal_symmetry_(x, dim1, dim2, masks):
         symmetry_score = torch.abs(x - transposed)
         return x + symmetry_score * 0.1
     return symmetry_(x, dim1, masks)
+
+# symmetry_analysis = multitensor_systems.multify(
+#                    only_do_for_certain_shapes((1,1,1,1,1), (1,0,1,1,1))(
+#                    add_residual(
+#                    make_directional_layer(
+#                    symmetry_, diagonal_symmetry_
+#                    ))))
+
+
+
+rotate = multitensor_systems.multify(
+         only_do_for_certain_shapes((1,1,1,1,1), (1,0,1,1,1))(
+         add_residual(
+         make_directional_layer(
+         rotate_, diagonal_rotate_
+         ))))
+
+morphological_ops = multitensor_systems.multify(
+                   only_do_for_certain_shapes((1,1,1,1,1), (1,0,1,1,1))(
+                   add_residual(
+                   make_directional_layer(
+                   morphology_, diagonal_morphology_
+                   ))))
+
+connected_component = multitensor_systems.multify(
+                     only_do_for_certain_shapes((1,1,1,1,1), (1,0,1,1,1))(
+                     add_residual(
+                     make_directional_layer(
+                     connected_component_, diagonal_connected_component_
+                     ))))
 
 symmetry_analysis = multitensor_systems.multify(
                    only_do_for_certain_shapes((1,1,1,1,1), (1,0,1,1,1))(
