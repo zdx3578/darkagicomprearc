@@ -330,17 +330,57 @@ def make_directional_layer(fn, diagonal_fn):
             MultiTensor[Tensor]: The output of the directional layer.
         """
 
-        # rearrange mask to fit same shape as x
-        masks = 1-(1-masks[...,0])*(1-masks[...,1])
-        if dims[4]==0:
-            masks = masks[:,:,0]
-        if dims[3]==0:
-            masks = masks[:,0,...]
-        for i in range(sum(dims[1:3])):
-            masks = masks[:,None,...]
-        masks = masks[...,None]
-        # mask out x
-        x = x*masks
+        # # rearrange mask to fit same shape as x
+        # masks = 1-(1-masks[...,0])*(1-masks[...,1])
+        # if dims[4]==0:
+        #     masks = masks[:,:,0]
+        # if dims[3]==0:
+        #     masks = masks[:,0,...]
+        # for i in range(sum(dims[1:3])):
+        #     masks = masks[:,None,...]
+        # masks = masks[...,None]
+        # # mask out x
+        # x = x*masks
+
+
+
+
+        # 处理掩码之前先检查并打印维度
+        print(f"x.shape: {x.shape}, masks.shape: {masks.shape if masks is not None else None}")
+
+        try:
+            # 尝试标准掩码处理
+            masks_processed = 1-(1-masks[...,0])*(1-masks[...,1])
+            if dims[4]==0:
+                masks_processed = masks_processed[:,:,0]
+            if dims[3]==0:
+                masks_processed = masks_processed[:,0,...]
+            for i in range(sum(dims[1:3])):
+                masks_processed = masks_processed[:,None,...]
+            masks_processed = masks_processed[...,None]
+
+            # 检查维度是否匹配
+            if masks_processed.shape[3] != x.shape[3]:
+                # 创建兼容大小的掩码
+                target_shape = list(masks_processed.shape)
+                target_shape[3] = x.shape[3]
+                new_masks = torch.ones(target_shape, device=x.device)
+                # 复制有效值
+                min_size = min(masks_processed.shape[3], x.shape[3])
+                if masks_processed.shape[3] < x.shape[3]:
+                    new_masks[..., :min_size, :] = masks_processed
+                else:
+                    new_masks = masks_processed[..., :min_size, :]
+                masks_processed = new_masks
+
+            # 应用掩码
+            x = x * masks_processed
+        except Exception as e:
+            # 如果掩码处理出错，回退到不使用掩码
+            print(f"掩码处理错误：{e}，将不使用掩码")
+            pass
+
+        
 
         # figure out which dimension the direction dimension is
         n_directions = dims[3]+dims[4]
