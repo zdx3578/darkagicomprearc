@@ -75,16 +75,16 @@ class Task:
         self.n_x = max(shape[i][0] for shape in self.shapes for i in range(2))
         self.n_y = max(shape[i][1] for shape in self.shapes for i in range(2))
 
-        colors = {color 
+        colors = {color
                   for split in ['train', 'test']
-                  for example in problem[split] 
+                  for example in problem[split]
                   for grid in [example['input'], example.get('output', [])]
                   for row in grid
                   for color in row}
         colors.add(0)  # Always include black as background
 
         self.colors = list(sorted(colors))
-        self.n_colors = len(self.colors) - 1
+        self.n_colors = len(self.colors) - 0
 
         self.multitensor_system = multitensor_systems.MultiTensorSystem(
             self.n_examples, self.n_colors, self.n_x, self.n_y, self
@@ -94,8 +94,8 @@ class Task:
         """
         Convert input/output grids to tensors.
         """
-        self.problem = np.zeros((self.n_examples, self.n_colors + 1, self.n_x, self.n_y, 2))
-        
+        self.problem = np.zeros((self.n_examples, self.n_colors + 0, self.n_x, self.n_y, 2))
+
         for subsplit, n_examples in [('train', self.n_train), ('test', self.n_test)]:
             for example_num, example in enumerate(problem[subsplit]):
                 new_example_num = example_num if subsplit == 'train' else self.n_train + example_num
@@ -117,14 +117,14 @@ class Task:
             [[1 if self.colors.index(color) == ref_color else 0
               for color in row]
              for row in grid]
-            for ref_color in range(self.n_colors + 1)
+            for ref_color in range(self.n_colors + 0)
         ])
 
     def _create_solution_tensor(self, solution):
         """
         Convert solution grids to tensors for crossentropy evaluation.
         """
-        solution_tensor = np.zeros((self.n_test, self.n_colors + 1, self.n_x, self.n_y))
+        solution_tensor = np.zeros((self.n_test, self.n_colors + 0, self.n_x, self.n_y))
         solution_tuple = ()
 
         for example_num, grid in enumerate(solution):
@@ -162,9 +162,9 @@ def preprocess_tasks(split, task_nums_or_task_names):
         problems = json.load(f)
 
     solutions = None if split == "test" else json.load(open(f'dataset/arc-agi_{split}_solutions.json'))
-    
+
     task_names = list(problems.keys())
-    
+
     return [Task(task_name,
                  problems[task_name],
                  solutions.get(task_name) if solutions else None)
