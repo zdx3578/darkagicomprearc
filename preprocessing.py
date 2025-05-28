@@ -84,17 +84,17 @@ class Task:
         colors.add(0)  # Always include black as background
 
         self.colors = list(sorted(colors))
-        self.n_colors = len(self.colors) - 0
+        self.n_colors = len(self.colors) - 1
 
         self.multitensor_system = multitensor_systems.MultiTensorSystem(
-            self.n_examples, self.n_colors, self.n_x, self.n_y, self
+            self.n_examples, self.n_colors + 1, self.n_x, self.n_y, self
         )
 
     def _create_problem_tensor(self, problem):
         """
         Convert input/output grids to tensors.
         """
-        self.problem = np.zeros((self.n_examples, self.n_colors + 0, self.n_x, self.n_y, 2))
+        self.problem = np.zeros((self.n_examples, self.n_colors + 1, self.n_x, self.n_y, 2))
 
         for subsplit, n_examples in [('train', self.n_train), ('test', self.n_test)]:
             for example_num, example in enumerate(problem[subsplit]):
@@ -117,14 +117,14 @@ class Task:
             [[1 if self.colors.index(color) == ref_color else 0
               for color in row]
              for row in grid]
-            for ref_color in range(self.n_colors + 0)
+            for ref_color in range(self.n_colors + 1)
         ])
 
     def _create_solution_tensor(self, solution):
         """
         Convert solution grids to tensors for crossentropy evaluation.
         """
-        solution_tensor = np.zeros((self.n_test, self.n_colors + 0, self.n_x, self.n_y))
+        solution_tensor = np.zeros((self.n_test, self.n_colors + 1, self.n_x, self.n_y))
         solution_tuple = ()
 
         for example_num, grid in enumerate(solution):
