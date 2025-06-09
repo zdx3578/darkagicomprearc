@@ -103,7 +103,13 @@ def take_step(task, model, optimizer, train_step, train_history_logger):
             logprob = torch.logsumexp(coefficient*logprobs, dim=(0,1))/coefficient  # Aggregate for all possible grid sizes
             reconstruction_error = reconstruction_error - logprob
 
-    loss = total_KL + 10*reconstruction_error
+    step1 = 250
+    if train_step < step1:                     # 1.像素复现
+        gamma, beta = 0.5, 10
+    else:                                   # 2.像素复现+KL
+        gamma, beta = 1.4, 9.1
+
+    loss = gamma*total_KL + beta*reconstruction_error
     loss.backward()
     optimizer.step()
     optimizer.zero_grad()
@@ -134,7 +140,7 @@ if __name__ == "__main__":
     for task in tasks:
         model = arc_compressor.ARCCompressor(task)
         models.append(model)
-        optimizer = torch.optim.Adam(model.weights_list, lr=0.011, betas=(0.5, 0.9))
+        optimizer = torch.optim.Adam(model.weights_list, lr=0.0115, betas=(0.5, 0.9))
         optimizers.append(optimizer)
         train_history_logger = solution_selection.Logger(task)
         visualization.plot_problem(train_history_logger)

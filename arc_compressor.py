@@ -20,8 +20,8 @@ class ARCCompressor:
     n_layers = 4 #4->2
     share_up_dim = 16  # 16->20 (适度增加)
     share_down_dim = 12
-    decoding_dim = 6
-    softmax_dim = 6 #4->6
+    decoding_dim = 16
+    softmax_dim = 8 #4->6
     cummax_dim = 8
     shift_dim = 8
     nonlinear_dim = 20
