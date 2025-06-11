@@ -41,12 +41,13 @@ def solve_task(task_name, split, time_limit, n_train_iterations, gpu_id, memory_
 
         model = arc_compressor.ARCCompressor(task)
         optimizer = torch.optim.Adam(model.weights_list, lr=0.01, betas=(0.5, 0.9))
+        scheduler = None
         train_history_logger = solution_selection.Logger(task)
         train_history_logger.solution_most_frequent = tuple(((0, 0), (0, 0)) for example_num in range(task.n_test))
         train_history_logger.solution_second_most_frequent = tuple(((0, 0), (0, 0)) for example_num in range(task.n_test))
 
         for train_step in range(n_train_iterations):
-            train.take_step(task, model, optimizer, train_step, train_history_logger)
+            train.take_step(task, model, optimizer, scheduler, train_step, train_history_logger)
             if time.time() > time_limit:
                 break
 

@@ -166,7 +166,7 @@ if __name__ == "__main__":
     for i, (task, model, optimizer, scheduler, train_history_logger) in enumerate(zip(tasks, models, optimizers, schedulers, train_history_loggers)):
         n_iterations = 2000
         for train_step in range(n_iterations):
-            take_step(task, model, optimizer, train_step, train_history_logger)
+            take_step(task, model, optimizer, scheduler, train_step, train_history_logger)
         visualization.plot_solution(train_history_logger)
         solution_selection.save_predictions(train_history_loggers[:i+1])
         solution_selection.plot_accuracy(true_solution_hashes)
