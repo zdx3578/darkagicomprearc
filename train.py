@@ -104,7 +104,7 @@ def take_step(task, model, optimizer, scheduler, train_step, train_history_logge
             logprob = torch.logsumexp(coefficient*logprobs, dim=(0,1))/coefficient  # Aggregate for all possible grid sizes
             reconstruction_error = reconstruction_error - logprob
 
-    step1 = 250
+    step1 = 550
     if train_step < step1:                     # 1.像素复现
         gamma, beta = 0.5, 10
     else:                                   # 2.像素复现+KL
