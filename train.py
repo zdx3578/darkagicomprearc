@@ -104,11 +104,11 @@ def take_step(task, model, optimizer, scheduler, train_step, train_history_logge
             logprob = torch.logsumexp(coefficient*logprobs, dim=(0,1))/coefficient  # Aggregate for all possible grid sizes
             reconstruction_error = reconstruction_error - logprob
 
-    step1 = 550
+    step1 = 450
     if train_step < step1:                     # 1.像素复现
-        gamma, beta = 0.5, 10
+        gamma, beta = 0.7, 10
     else:                                   # 2.像素复现+KL
-        gamma, beta = 1.4, 9.1
+        gamma, beta = 1.4, 9.3
 
     loss = gamma*total_KL + beta*reconstruction_error
     loss.backward()
@@ -127,7 +127,7 @@ def take_step(task, model, optimizer, scheduler, train_step, train_history_logge
                              total_KL,
                              reconstruction_error,
                              loss)
-learningrate = 0.02
+learningrate = 0.015
 
 if __name__ == "__main__":
     start_time = time.time()
@@ -148,7 +148,7 @@ if __name__ == "__main__":
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 optimizer,
                 mode='min',
-                factor=0.95,
+                factor=0.97,
                 patience=10,
                 min_lr=6e-3,
                 # verbose=True
