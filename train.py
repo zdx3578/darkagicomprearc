@@ -34,13 +34,14 @@ def mask_select_logprobs(mask, length):
     log_partition = torch.logsumexp(logprobs, dim=0)
     return log_partition, logprobs
 
-def take_step(task, model, optimizer, train_step, train_history_logger):
+def take_step(task, model, optimizer, scheduler, train_step, train_history_logger):
     """
     Runs a forward pass of the model on the ARC-AGI task.
     Args:
         task (Task): The ARC-AGI task containing the problem.
         model (ArcCompressor): The VAE decoder model to run the forward pass with.
         optimizer (torch.optim.Optimizer): The optimizer used to take the step on the model weights.
+        scheduler (torch.optim.lr_scheduler._LRScheduler): Scheduler updating the learning rate.
         train_step (int): The training iteration number.
         train_history_logger (Logger): A logger object used for logging the forward pass outputs
                 of the model, as well as accuracy and other things.
@@ -103,15 +104,17 @@ def take_step(task, model, optimizer, train_step, train_history_logger):
             logprob = torch.logsumexp(coefficient*logprobs, dim=(0,1))/coefficient  # Aggregate for all possible grid sizes
             reconstruction_error = reconstruction_error - logprob
 
-    step1 = 250
+    step1 = 450
     if train_step < step1:                     # 1.像素复现
-        gamma, beta = 0.5, 10
+        gamma, beta = 0.7, 10
     else:                                   # 2.像素复现+KL
-        gamma, beta = 1.4, 9.1
+        gamma, beta = 1.4, 9.3
 
     loss = gamma*total_KL + beta*reconstruction_error
     loss.backward()
     optimizer.step()
+    if scheduler is not None:
+        scheduler.step(reconstruction_error.item())
     optimizer.zero_grad()
 
     # Performance recording
@@ -124,7 +127,7 @@ def take_step(task, model, optimizer, train_step, train_history_logger):
                              total_KL,
                              reconstruction_error,
                              loss)
-
+learningrate = 0.001
 
 if __name__ == "__main__":
     start_time = time.time()
@@ -136,11 +139,24 @@ if __name__ == "__main__":
     tasks = preprocessing.preprocess_tasks(split, task_nums)
     models = []
     optimizers = []
+    schedulers = []
     train_history_loggers = []
     for task in tasks:
         model = arc_compressor.ARCCompressor(task)
         models.append(model)
-        optimizer = torch.optim.Adam(model.weights_list, lr=0.001, betas=(0.5, 0.9))
+
+
+        optimizer = torch.optim.Adam(model.weights_list, lr=learningrate, betas=(0.5, 0.9))
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer,
+                mode='min',
+                factor=0.97,
+                patience=5,
+                min_lr=1e-4,
+                # verbose=True
+            )
+        schedulers.append(scheduler)
+
         optimizers.append(optimizer)
         train_history_logger = solution_selection.Logger(task)
         visualization.plot_problem(train_history_logger)
@@ -150,10 +166,10 @@ if __name__ == "__main__":
     true_solution_hashes = [task.solution_hash for task in tasks]
 
     # Train the models one by one
-    for i, (task, model, optimizer, train_history_logger) in enumerate(zip(tasks, models, optimizers, train_history_loggers)):
+    for i, (task, model, optimizer, scheduler, train_history_logger) in enumerate(zip(tasks, models, optimizers, schedulers, train_history_loggers)):
         n_iterations = 2000
         for train_step in range(n_iterations):
-            take_step(task, model, optimizer, train_step, train_history_logger)
+            take_step(task, model, optimizer, scheduler, train_step, train_history_logger)
         visualization.plot_solution(train_history_logger)
         solution_selection.save_predictions(train_history_loggers[:i+1])
         solution_selection.plot_accuracy(true_solution_hashes)
