@@ -127,7 +127,7 @@ def take_step(task, model, optimizer, scheduler, train_step, train_history_logge
                              total_KL,
                              reconstruction_error,
                              loss)
-learningrate = 0.001
+learningrate = 0.005
 
 if __name__ == "__main__":
     start_time = time.time()

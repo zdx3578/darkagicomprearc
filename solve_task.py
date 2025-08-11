@@ -41,7 +41,7 @@ def solve_task(task_name, split, time_limit, n_train_iterations, gpu_id, memory_
 
         model = arc_compressor.ARCCompressor(task)
 
-        optimizer = torch.optim.Adam(model.weights_list, lr=0.001, betas=(0.5, 0.9))
+        optimizer = torch.optim.Adam(model.weights_list, lr=0.005, betas=(0.5, 0.9))
         scheduler = None
 
         train_history_logger = solution_selection.Logger(task)
